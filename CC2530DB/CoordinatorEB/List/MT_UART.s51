@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                            /
-// IAR C/C++ Compiler V8.10.1.10194/W32 for 8051        29/Dec/2014  12:59:39 /
+// IAR C/C++ Compiler V8.10.1.10194/W32 for 8051        29/Dec/2014  14:58:41 /
 // Copyright 2004-2011 IAR Systems AB.                                        /
 //                                                                            /
 //    Core               =  plain                                             /
@@ -611,11 +611,12 @@ MT_UartInit:
         MOVX    @DPTR,A
 //  108   uartConfig.baudRate             = MT_UART_DEFAULT_BAUDRATE;
         LCALL   ?XSTACK_DISP0_8
-        MOV     A,#0x2
+        MOV     A,#0x4
         MOVX    @DPTR,A
 //  109   uartConfig.flowControl          = MT_UART_DEFAULT_OVERFLOW;
+        MOV     A,#0x2
         LCALL   ?XSTACK_DISP0_8
-        MOV     A,#0x1
+        CLR     A
         MOVX    @DPTR,A
 //  110   uartConfig.flowControlThreshold = MT_UART_DEFAULT_THRESHOLD;
         MOV     A,#0x3
@@ -2243,11 +2244,11 @@ MT_UartProcessZToolData:
 //  429 /***************************************************************************************************
 //  430 ***************************************************************************************************/
 // 
-// 705 bytes in segment BANKED_CODE
+// 706 bytes in segment BANKED_CODE
 //  24 bytes in segment BANK_RELAYS
 //   9 bytes in segment XDATA_Z
 // 
-// 729 bytes of CODE  memory
+// 730 bytes of CODE  memory
 //   9 bytes of XDATA memory
 //
 //Errors: none

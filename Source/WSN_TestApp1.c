@@ -78,6 +78,7 @@
 #include "hal_led.h"
 #include "hal_key.h"
 #include "hal_uart.h"
+#include "MT_UART.h"
 
 /* RTOS */
 #if defined( IAR_ARMCM3_LM )
@@ -188,6 +189,11 @@ void WSN_TestApp1_Init( uint8 task_id )
   // Device hardware initialization can be added here or in main() (Zmain.c).
   // If the hardware is application specific - add it here.
   // If the hardware is other parts of the device add it in main().
+
+  //add uart function 
+  MT_UartInit();
+  MT_UartRegisterTaskID(task_id);
+  HalUARTWrite(0,"HELLO\n",6);
 
   WSN_TestApp1_DstAddr.addrMode = (afAddrMode_t)AddrNotPresent;
   WSN_TestApp1_DstAddr.endPoint = 0;
