@@ -63,8 +63,11 @@ extern "C"
 #define WSN_TestApp1_DEVICE_VERSION     0
 #define WSN_TestApp1_FLAGS              0
 
-#define WSN_TestApp1_MAX_CLUSTERS       1
+#define WSN_TestApp1_MAX_CLUSTERS       2
 #define WSN_TestApp1_CLUSTERID          1
+#define	WSN_TestApp1_NWKCMD_CLUSTERID	2		//CLUSTER ID FOR NETWORK CMD
+
+#define WSN_NETWORK_CMD_FRAME_LENGTH	16		//16 BYTES FOR WSN NWK CMD FRAME LENGTH
 
 // Send Message Timeout
 #define WSN_TestApp1_SEND_MSG_TIMEOUT   5000     // Every 5 seconds
