@@ -71,9 +71,10 @@ extern "C"
 
 // Send Message Timeout
 #define WSN_TestApp1_SEND_MSG_TIMEOUT   5000     // Every 5 seconds
-
+#define WSN_TestApp1_SEND_NWK_CMD_TIMEOUT	5000		//EVERY 1 SECOND
 // Application Events (OSAL) - These are bit weighted definitions.
 #define WSN_TestApp1_SEND_MSG_EVT       0x0001
+#define WSN_TestApp1_SEND_NWK_CMD_EVT	0x0002
 
 #if defined( IAR_ARMCM3_LM )
 #define WSN_TestApp1_RTOS_MSG_EVT       0x0002
