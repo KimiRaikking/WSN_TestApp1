@@ -22,7 +22,7 @@
   its documentation for any purpose.
 
   YOU FURTHER ACKNOWLEDGE AND AGREE THAT THE SOFTWARE AND DOCUMENTATION ARE
-  PROVIDED “AS IS” WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+  PROVIDED “AS IS?WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED,
   INCLUDING WITHOUT LIMITATION, ANY WARRANTY OF MERCHANTABILITY, TITLE,
   NON-INFRINGEMENT AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL
   TEXAS INSTRUMENTS OR ITS LICENSORS BE LIABLE OR OBLIGATED UNDER CONTRACT,
@@ -107,7 +107,7 @@ byte* 	MyExtAddr;
 byte*	ParentExtAddr;
 byte	MyShortAddr1[2];
 byte 	ParentShortAddr1[2];
-byte	NwkAddrFrame[12];		//2bytes:cmd type;2bytes:device type;2bytes:short addr;2bytes:parent addr;8bytes:ext addr
+uint8	NwkAddrFrame[16];		//2bytes:cmd type;2bytes:device type;2bytes:short addr;2bytes:parent addr;8bytes:ext addr
 
 // This list should be filled with Application specific Cluster IDs.
 const cId_t WSN_TestApp1_ClusterList[WSN_TestApp1_MAX_CLUSTERS] =
@@ -157,6 +157,7 @@ byte WSN_TestApp1_TransID;  // This is the unique message ID (counter)
 
 afAddrType_t WSN_TestApp1_DstAddr;
 afAddrType_t WSN_TestApp1_Unicast_DstAddr;			//this is the unicast destination address of coord 
+afAddrType_t WSN_TestApp1_Broadcast_DstAddr;		//this is the broadcast destination address for test
 
 /*********************************************************************
  * LOCAL FUNCTIONS
@@ -207,14 +208,19 @@ void WSN_TestApp1_Init( uint8 task_id )
   MT_UartRegisterTaskID(task_id);
   //HalUARTWrite(0,"HELLO\n",6);
 
-  WSN_TestApp1_DstAddr.addrMode = (afAddrMode_t)AddrNotPresent;
-  WSN_TestApp1_DstAddr.endPoint = 0;
+  WSN_TestApp1_DstAddr.addrMode = (afAddrMode_t)Addr16Bit;
+  WSN_TestApp1_DstAddr.endPoint = WSN_TestApp1_ENDPOINT;
   WSN_TestApp1_DstAddr.addr.shortAddr = 0x0000;
 
   //config unicast destination address  to coordinator short addr
   WSN_TestApp1_Unicast_DstAddr.addrMode = (afAddrMode_t)Addr16Bit;
   WSN_TestApp1_Unicast_DstAddr.endPoint = WSN_TestApp1_ENDPOINT;
   WSN_TestApp1_Unicast_DstAddr.addr.shortAddr = 0x0000;
+
+  //config broadcast destination address 
+  WSN_TestApp1_Broadcast_DstAddr.addrMode = (afAddrMode_t)AddrBroadcast;
+  WSN_TestApp1_Broadcast_DstAddr.endPoint = WSN_TestApp1_ENDPOINT;
+  WSN_TestApp1_Broadcast_DstAddr.addr.shortAddr = 0xFFFF;
   
   // Fill out the endpoint description.
   WSN_TestApp1_epDesc.endPoint = WSN_TestApp1_ENDPOINT;
@@ -301,7 +307,6 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
           break;
 
         case AF_INCOMING_MSG_CMD:
-		  HalLedBlink(HAL_LED_2,3,50,1000);
           WSN_TestApp1_MessageMSGCB( MSGpkt );
           break;
 
@@ -341,25 +346,22 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
 				NwkAddrFrame[7] = NLME_GetCoordShortAddr()&0x00ff;		//parent short address
 				byte* pMyExtAddr = NLME_GetExtAddr();
 				for(uint8 i=0;i<8;i++)
-					NwkAddrFrame[8+i] = *(pMyExtAddr+i);			//my ext address
+					NwkAddrFrame[8+i] = *(pMyExtAddr+i);			//my ext address,it is dangerous of overflow for array
 				HalUARTWrite(0,NwkAddrFrame,16);
-				//send af msg to coord
-				if(AF_DataRequest(&WSN_TestApp1_Unicast_DstAddr, &WSN_TestApp1_epDesc,
-                       WSN_TestApp1_NWKCMD_CLUSTERID,
-                       16,
-                       NwkAddrFrame,
-                       &WSN_TestApp1_TransID,
-                       AF_DISCV_ROUTE, AF_DEFAULT_RADIUS )== afStatus_SUCCESS)
-					HalLedBlink(HAL_LED_2,3,50,1000);
-				else
-					HalLedBlink(HAL_LED_1,3,50,1000);
+				//start a timer
+				osal_start_reload_timer(WSN_TestApp1_TaskID,
+								WSN_TestApp1_SEND_NWK_CMD_EVT,
+								WSN_TestApp1_SEND_NWK_CMD_TIMEOUT);
+				
 				
 				
 			}
 			// Start sending "the" message in a regular interval.
+			/*
             osal_start_timerEx( WSN_TestApp1_TaskID,
                                 WSN_TestApp1_SEND_MSG_EVT,
                                 WSN_TestApp1_SEND_MSG_TIMEOUT );
+                                */
           }
           break;
 
@@ -392,6 +394,17 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
 
     // return unprocessed events
     return (events ^ WSN_TestApp1_SEND_MSG_EVT);
+  }
+
+  //owner defined event
+  if(events & WSN_TestApp1_SEND_NWK_CMD_EVT)
+  {
+		if(WSN_TestApp1_NwkState != DEV_ZB_COORD)
+		{
+			
+			WSN_TestApp1_SendTheMessage();
+		}
+		return (events^WSN_TestApp1_SEND_NWK_CMD_EVT);
   }
 
   
@@ -545,6 +558,10 @@ static void WSN_TestApp1_HandleKeys( uint8 shift, uint8 keys )
                         FALSE );
     }
   }
+
+  
+
+  
 }
 
 /*********************************************************************
@@ -564,12 +581,14 @@ static void WSN_TestApp1_HandleKeys( uint8 shift, uint8 keys )
  */
 static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pkt )
 {
+  
   switch ( pkt->clusterId )
   {
-    case WSN_TestApp1_CLUSTERID:
+	
+	case WSN_TestApp1_CLUSTERID:
       // "the" message
       HalUARTWrite(0,pkt->cmd.Data,12);
-	  HalLedBlink(HAL_LED_2,5,50,1000);
+	  
 #if defined( LCD_SUPPORTED )
       HalLcdWriteScreen( (char*)pkt->cmd.Data, "rcvd" );
 #elif defined( WIN32 )
@@ -596,17 +615,17 @@ static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pkt )
  */
 static void WSN_TestApp1_SendTheMessage( void )
 {
-  char theMessageData[] = "Hello World";
+  //char theMessageData[] = "Hello World";
 
-  if ( AF_DataRequest( &WSN_TestApp1_DstAddr, &WSN_TestApp1_epDesc,
-                       WSN_TestApp1_CLUSTERID,
-                       (byte)osal_strlen( theMessageData ) + 1,
-                       (byte *)&theMessageData,
+  if ( AF_DataRequest( &WSN_TestApp1_Unicast_DstAddr, &WSN_TestApp1_epDesc,
+                       WSN_TestApp1_NWKCMD_CLUSTERID,
+                       16,
+                       (byte *)&NwkAddrFrame,
                        &WSN_TestApp1_TransID,
                        AF_DISCV_ROUTE, AF_DEFAULT_RADIUS ) == afStatus_SUCCESS )
   {
     // Successfully requested to be sent.
-    HalLedBlink(HAL_LED_1,3,50,1000);
+    HalLedBlink(HAL_LED_2,3,50,1000);
   }
   else
   {
