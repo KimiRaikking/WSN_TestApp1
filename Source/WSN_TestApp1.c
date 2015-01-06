@@ -102,13 +102,12 @@
 /*********************************************************************
  * GLOBAL VARIABLES
  */
-uint16	MyShortAddr,ParentShortAddr;
-byte* 	MyExtAddr;
-byte*	ParentExtAddr;
-byte	MyShortAddr1[2];
-byte 	ParentShortAddr1[2];
+NodeAddr	MyNodeAddr;
 uint8	NwkAddrFrame[16];		//2bytes:cmd type;2bytes:device type;2bytes:short addr;2bytes:parent addr;8bytes:ext addr
-
+DeviceEndPoint* pHeadPoint;
+uint16 NodeShortAddr ;
+bool IsNodeInList ;
+byte TempFrame[16];
 // This list should be filled with Application specific Cluster IDs.
 const cId_t WSN_TestApp1_ClusterList[WSN_TestApp1_MAX_CLUSTERS] =
 {
@@ -166,6 +165,7 @@ static void WSN_TestApp1_ProcessZDOMsgs( zdoIncomingMsg_t *inMsg );
 static void WSN_TestApp1_HandleKeys( byte shift, byte keys );
 static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pckt );
 static void WSN_TestApp1_SendTheMessage( void );
+static void WSN_TestApp1_ProcessNwkCmdMSG(byte* pNwkAddrFrame);		//process incoming network cmd msg
 
 #if defined( IAR_ARMCM3_LM )
 static void WSN_TestApp1_ProcessRtosMessage( void );
@@ -312,50 +312,72 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
 
         case ZDO_STATE_CHANGE:
           WSN_TestApp1_NwkState = (devStates_t)(MSGpkt->hdr.status);
-          if (  (WSN_TestApp1_NwkState == DEV_ROUTER)
-              || (WSN_TestApp1_NwkState == DEV_END_DEVICE) )		//(WSN_TestApp1_NwkState == DEV_ZB_COORD) ||
+          if (  (WSN_TestApp1_NwkState == DEV_ZB_COORD) 
+		  		||(WSN_TestApp1_NwkState == DEV_ROUTER)
+              	|| (WSN_TestApp1_NwkState == DEV_END_DEVICE) )		
               
           {
-			MyShortAddr = NLME_GetShortAddr();
-			MyExtAddr	= NLME_GetExtAddr();
-			MyShortAddr1[0] = (MyShortAddr&0xff00)>>8;
-			MyShortAddr1[1] = MyShortAddr&0x00ff;
-			
-			
-			HalUARTWrite(0,"my address\n",11);
-			HalUARTWrite(0,MyShortAddr1,2);
-			if(WSN_TestApp1_NwkState != DEV_ZB_COORD)
-			{	
-				ParentShortAddr		= NLME_GetCoordShortAddr();
-				ParentShortAddr1[0] = (ParentShortAddr&0xff00)>>8;
-				ParentShortAddr1[1] = ParentShortAddr&0x00ff;
-				HalUARTWrite(0,"parent\n",7);
-				HalUARTWrite(0,ParentShortAddr1,2);
+				MyNodeAddr.MyShortAddr = NLME_GetShortAddr();
+				byte* pMyExtAddr = NLME_GetExtAddr();
+				for(uint8 i=0;i<8;i++)
+					MyNodeAddr.MyExtAddr[i] = *(pMyExtAddr+i);
+				switch(WSN_TestApp1_NwkState)
+				{	case DEV_ZB_COORD:
+						MyNodeAddr.MyDeviceType = Node_Coord_Type;
+						break;
+					case DEV_ROUTER:
+						MyNodeAddr.MyDeviceType = Node_Router_Type;
+						break;
+					case DEV_END_DEVICE:
+						MyNodeAddr.MyDeviceType = Node_EndDevice_Type;
+						break;
+					default:
+						break;
 
-				//build network addr frame
+				}
+				MyNodeAddr.ParentShortAddr = NLME_GetCoordShortAddr();
+				if(MyNodeAddr.MyDeviceType == Node_Coord_Type)
+				{
+					pHeadPoint = (DeviceEndPoint*)osal_mem_alloc(sizeof(DeviceEndPoint));
+					pHeadPoint->DeviceNodeAddr = MyNodeAddr;
+					pHeadPoint->pNextNode = (DeviceEndPoint*)NULL;				//store coord node addr info
+				}
+					
+				if(WSN_TestApp1_NwkState != DEV_ZB_COORD)
+				{	
+					
+				//build network addr frame for router and end device
 				NwkAddrFrame[0] = 0x00;
 				NwkAddrFrame[1] = 0x00;		//CMD TYPE
 				NwkAddrFrame[2] = 0x00;
-				if(WSN_TestApp1_NwkState == DEV_ROUTER)
-					NwkAddrFrame[3] = 0x01;		//router device typr
-				else
-					NwkAddrFrame[3] = 0x02;		//end device devcie type
-				NwkAddrFrame[4] = (NLME_GetShortAddr()&0xff00)>>8;
-				NwkAddrFrame[5] = NLME_GetShortAddr()&0x00ff;		//my short address
-				NwkAddrFrame[6] = (NLME_GetCoordShortAddr()&0xff00)>>8;
-				NwkAddrFrame[7] = NLME_GetCoordShortAddr()&0x00ff;		//parent short address
-				byte* pMyExtAddr = NLME_GetExtAddr();
+				NwkAddrFrame[3] = MyNodeAddr.MyDeviceType;		//device type
+				NwkAddrFrame[4] = (MyNodeAddr.MyShortAddr & 0xff00)>>8;		//higher byte of short addr
+				NwkAddrFrame[5] = MyNodeAddr.MyShortAddr & 0x00ff;		//my short address,lower byte of short addr
+				NwkAddrFrame[6] = (MyNodeAddr.ParentShortAddr & 0xff00)>>8;
+				NwkAddrFrame[7] = MyNodeAddr.ParentShortAddr & 0x00ff;		//parent short address
+				
 				for(uint8 i=0;i<8;i++)
-					NwkAddrFrame[8+i] = *(pMyExtAddr+i);			//my ext address,it is dangerous of overflow for array
-				HalUARTWrite(0,NwkAddrFrame,16);
+					NwkAddrFrame[8+i] = MyNodeAddr.MyExtAddr[i];			//my ext address,it is dangerous of overflow for array
+				if(AF_DataRequest(&WSN_TestApp1_Unicast_DstAddr,&WSN_TestApp1_epDesc,
+								WSN_TestApp1_NWKCMD_CLUSTERID,
+								16,
+								(byte*)&NwkAddrFrame,
+								&WSN_TestApp1_TransID,
+								AF_DISCV_ROUTE,AF_DEFAULT_RADIUS) == afStatus_SUCCESS)
+				{
+					HalLedBlink(HAL_LED_2,3,50,500);
+				}
+
+				
+				/*
 				//start a timer
 				osal_start_reload_timer(WSN_TestApp1_TaskID,
 								WSN_TestApp1_SEND_NWK_CMD_EVT,
 								WSN_TestApp1_SEND_NWK_CMD_TIMEOUT);
 				
+				*/
 				
-				
-			}
+				}
 			// Start sending "the" message in a regular interval.
 			/*
             osal_start_timerEx( WSN_TestApp1_TaskID,
@@ -587,7 +609,7 @@ static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pkt )
 	
 	case WSN_TestApp1_CLUSTERID:
       // "the" message
-      HalUARTWrite(0,pkt->cmd.Data,12);
+     // HalUARTWrite(0,pkt->cmd.Data,12);
 	  
 #if defined( LCD_SUPPORTED )
       HalLcdWriteScreen( (char*)pkt->cmd.Data, "rcvd" );
@@ -598,6 +620,7 @@ static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pkt )
 	case WSN_TestApp1_NWKCMD_CLUSTERID:
 	
 		HalUARTWrite(0,pkt->cmd.Data,16);
+		WSN_TestApp1_ProcessNwkCmdMSG(pkt->cmd.Data);		//process the incoming af msg about network node address
 		HalLedBlink(HAL_LED_1,5,50,1000);
 		break;
 	
@@ -676,4 +699,92 @@ static void WSN_TestApp1_ProcessRtosMessage( void )
 #endif
 
 /*********************************************************************
+* @fn 	static void WSN_TestApp1_ProcessNwkCmdMSG
+*
+* @brief	process incoming network addr cmd msg
+*
+* @param	pNwkAddrFrame: incoming af NwkAddrFrame
+*
+* return	none
  */
+ static void WSN_TestApp1_ProcessNwkCmdMSG(byte* pNwkAddrFrame)
+{
+	
+    for(uint8 m=0;m<16;m++)
+         TempFrame[m] = *(pNwkAddrFrame+m);
+	//first judge if the head is null,if true,do nothing
+	if(pHeadPoint != 0x0000)
+	{
+		//judge if the node is already in the list
+		NodeShortAddr = 0x0000;
+		NodeShortAddr = (uint16)TempFrame[4];
+		NodeShortAddr = NodeShortAddr<<8 + TempFrame[5];
+		DeviceEndPoint* pTempPoint1;
+		DeviceEndPoint* pTempPoint2;
+		pTempPoint1 = (DeviceEndPoint*)osal_mem_alloc(sizeof(DeviceEndPoint));
+		pTempPoint2 = (DeviceEndPoint*)osal_mem_alloc(sizeof(DeviceEndPoint));
+		osal_memcpy(pTempPoint2,pHeadPoint,sizeof(DeviceEndPoint));
+		IsNodeInList = false;
+		while(pTempPoint2)		//search if the point is in the list
+		{
+			//pTempPoint1 = pTempPoint2;
+			osal_memcpy(pTempPoint1,pTempPoint2,sizeof(DeviceEndPoint));
+			if(pTempPoint2->DeviceNodeAddr.MyShortAddr == NodeShortAddr)
+			{
+				IsNodeInList = true;
+				break;
+			}
+			pTempPoint2 = pTempPoint2->pNextNode;
+		}
+		//process the incoming node
+		if(IsNodeInList)
+		{
+			//if true ,update the existing node
+			pTempPoint1->DeviceNodeAddr.MyDeviceType = *(pNwkAddrFrame+3);
+			pTempPoint1->DeviceNodeAddr.ParentShortAddr = *(pNwkAddrFrame+6)<<8 + *(pNwkAddrFrame+7);
+			for(uint8 j=0;j<8;j++)
+				pTempPoint1->DeviceNodeAddr.MyExtAddr[j] = *(pNwkAddrFrame+8+j);
+			
+		}
+		else
+		{
+			//if false,add new node in the tail of the list,and pTempPoint1 point to the tail of the list
+			DeviceEndPoint* pNewPoint1;
+			pNewPoint1 = (DeviceEndPoint*)osal_mem_alloc(sizeof(DeviceEndPoint));
+			pNewPoint1->DeviceNodeAddr.MyDeviceType = *(pNwkAddrFrame+3);
+			pNewPoint1->DeviceNodeAddr.MyShortAddr  = *(pNwkAddrFrame+4)<<8 + *(pNwkAddrFrame+5);
+			pNewPoint1->DeviceNodeAddr.ParentShortAddr = *(pNwkAddrFrame+6)<<8 + *(pNwkAddrFrame+7);
+			for(uint8 k=0;k<8;k++)
+				pNewPoint1->DeviceNodeAddr.MyExtAddr[k] = *(pNwkAddrFrame+8+k);
+			pTempPoint1->pNextNode = pNewPoint1;
+			pNewPoint1->pNextNode = NULL;
+			
+		}
+		//free mem allocation
+		osal_mem_free(pTempPoint1);
+		osal_mem_free(pTempPoint2);
+		
+		//output the list
+		DeviceEndPoint* pTempPoint;
+		pTempPoint = (DeviceEndPoint*)osal_mem_alloc(sizeof(DeviceEndPoint));
+		osal_memcpy(pTempPoint,pHeadPoint,sizeof(DeviceEndPoint));
+		//pTempPoint = pHeadPoint;
+		while(pTempPoint)
+		{
+			byte NodeInfo[14];
+			NodeInfo[0] = 0x00;
+			NodeInfo[1] = pTempPoint->DeviceNodeAddr.MyDeviceType;
+			NodeInfo[2] = (pTempPoint->DeviceNodeAddr.MyShortAddr & 0xff00)>>8;
+			NodeInfo[3] = pTempPoint->DeviceNodeAddr.MyShortAddr & 0x00ff;
+			NodeInfo[4] = (pTempPoint->DeviceNodeAddr.ParentShortAddr & 0xff00)>>8;
+			NodeInfo[5] = pTempPoint->DeviceNodeAddr.ParentShortAddr & 0x00ff;
+			for(uint8 i=0;i<8;i++)
+				NodeInfo[6+i] = pTempPoint->DeviceNodeAddr.MyExtAddr[i];
+			HalUARTWrite(0,NodeInfo,14);
+			pTempPoint = pTempPoint->pNextNode;
+		}
+		osal_mem_free(pTempPoint);
+	}
+	
+	
+}

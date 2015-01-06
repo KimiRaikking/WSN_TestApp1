@@ -22,7 +22,7 @@
   its documentation for any purpose.
 
   YOU FURTHER ACKNOWLEDGE AND AGREE THAT THE SOFTWARE AND DOCUMENTATION ARE
-  PROVIDED “AS IS” WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, 
+  PROVIDED “AS IS?WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, 
   INCLUDING WITHOUT LIMITATION, ANY WARRANTY OF MERCHANTABILITY, TITLE, 
   NON-INFRINGEMENT AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL
   TEXAS INSTRUMENTS OR ITS LICENSORS BE LIABLE OR OBLIGATED UNDER CONTRACT,
@@ -79,6 +79,22 @@ extern "C"
 #if defined( IAR_ARMCM3_LM )
 #define WSN_TestApp1_RTOS_MSG_EVT       0x0002
 #endif  
+
+#define Node_Coord_Type					0x00
+#define Node_Router_Type				0x01
+#define Node_EndDevice_Type				0x02
+
+typedef struct NodeAddrInfo{
+uint16 MyShortAddr;
+uint8	MyExtAddr[8];
+uint8	MyDeviceType;
+uint16	ParentShortAddr;
+}NodeAddr;
+
+typedef struct DeviceNode{
+	NodeAddr DeviceNodeAddr;
+	struct DeviceNode* pNextNode;
+}DeviceEndPoint;
 
 /*********************************************************************
  * MACROS
