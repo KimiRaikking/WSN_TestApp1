@@ -102,6 +102,7 @@
 /*********************************************************************
  * GLOBAL VARIABLES
  */
+uint8 zgprofid;
 NodeAddr	MyNodeAddr;
 uint8	NwkAddrFrame[16];		//2bytes:cmd type;2bytes:device type;2bytes:short addr;2bytes:parent addr;8bytes:ext addr
 DeviceEndPoint* pHeadPoint;
@@ -241,6 +242,7 @@ void WSN_TestApp1_Init( uint8 task_id )
 
   ZDO_RegisterForZDOMsg( WSN_TestApp1_TaskID, End_Device_Bind_rsp );
   ZDO_RegisterForZDOMsg( WSN_TestApp1_TaskID, Match_Desc_rsp );
+  ZDO_RegisterForZDOMsg(WSN_TestApp1_TaskID,IEEE_addr_rsp);			//register for ZDO msg by kimi
 
 #if defined( IAR_ARMCM3_LM )
   // Register this task with RTOS task initiator
@@ -310,6 +312,9 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
           break;
 
         case ZDO_STATE_CHANGE:
+	  	zgprofid = zgStackProfile;
+		if(zgprofid == 0x02)
+			HalLedBlink(HAL_LED_1,3,50,1000);			//to judge if the stack profile is Zigbee Pro stack profile
           WSN_TestApp1_NwkState = (devStates_t)(MSGpkt->hdr.status);
           if (  (WSN_TestApp1_NwkState == DEV_ZB_COORD) 
 		  		||(WSN_TestApp1_NwkState == DEV_ROUTER)
@@ -340,6 +345,9 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
 					pHeadPoint = (DeviceEndPoint*)osal_mem_alloc(sizeof(DeviceEndPoint));
 					pHeadPoint->DeviceNodeAddr = MyNodeAddr;
 					pHeadPoint->pNextNode = (DeviceEndPoint*)NULL;				//store coord node addr info
+
+					
+					
 				}
 					
 				if(WSN_TestApp1_NwkState != DEV_ZB_COORD)
@@ -496,6 +504,28 @@ static void WSN_TestApp1_ProcessZDOMsgs( zdoIncomingMsg_t *inMsg )
         }
       }
       break;
+
+	  case IEEE_addr_rsp:
+	  	{
+			ZDO_NwkIEEEAddrResp_t* pRsp = ZDO_ParseAddrRsp( inMsg);
+			if(pRsp)
+			{	
+				HalUARTWrite(0,(uint8*)pRsp,sizeof(*pRsp)+2*pRsp->numAssocDevs);	//note the length
+				if(pRsp->numAssocDevs)
+					HalLedBlink(HAL_LED_2,pRsp->numAssocDevs,50,1000);
+				for(uint8 i =0;i<pRsp->numAssocDevs;i++)
+					{
+					//request to the associated devs if not null of the list
+					uint16 DevShortAddr = pRsp->devList[i];
+					if(ZDP_IEEEAddrReq(DevShortAddr,ZDP_ADDR_REQTYPE_EXTENDED,0,0)== afStatus_SUCCESS)
+						HalLedBlink(HAL_LED_2,1,50,1000);
+					}
+			}
+			
+			osal_mem_free(pRsp);		//must free ZDO_NwkIEEEAddrResp_t* data whichi allocated in ZDO_ParseAddrRsp
+			
+	  }
+	  break;
   }
 }
 
@@ -578,6 +608,12 @@ static void WSN_TestApp1_HandleKeys( uint8 shift, uint8 keys )
                         WSN_TestApp1_MAX_CLUSTERS, (cId_t *)WSN_TestApp1_ClusterList,
                         FALSE );
     }
+	if(keys & HAL_KEY_SW_1)		//button s1
+	{
+		if(ZDP_IEEEAddrReq(0x0000,ZDP_ADDR_REQTYPE_EXTENDED,0,0)== afStatus_SUCCESS)
+			HalLedBlink(HAL_LED_2,2,50,1000);
+		
+	}
   }
 
   
@@ -619,6 +655,7 @@ static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pkt )
 	case WSN_TestApp1_NWKCMD_CLUSTERID:
 	
 		//HalUARTWrite(0,pkt->cmd.Data,16);
+		//ZDP_IEEEAddrReq(0x0000,ZDP_ADDR_REQTYPE_EXTENDED,0,0);
 		WSN_TestApp1_ProcessNwkCmdMSG(pkt->cmd.Data);		//process the incoming af msg about network node address
 		HalLedBlink(HAL_LED_1,5,50,1000);
 		break;
