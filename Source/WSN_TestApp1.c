@@ -242,7 +242,8 @@ void WSN_TestApp1_Init( uint8 task_id )
 
   ZDO_RegisterForZDOMsg( WSN_TestApp1_TaskID, End_Device_Bind_rsp );
   ZDO_RegisterForZDOMsg( WSN_TestApp1_TaskID, Match_Desc_rsp );
-  ZDO_RegisterForZDOMsg(WSN_TestApp1_TaskID,IEEE_addr_rsp);			//register for ZDO msg by kimi
+  ZDO_RegisterForZDOMsg(WSN_TestApp1_TaskID,IEEE_addr_rsp);			//register IEEE_addr_rsp  ZDO msg by kimi
+  ZDO_RegisterForZDOMsg(WSN_TestApp1_TaskID,Device_annce);			//register Device_annce ZDO msg by kimi
 
 #if defined( IAR_ARMCM3_LM )
   // Register this task with RTOS task initiator
@@ -312,6 +313,7 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
           break;
 
         case ZDO_STATE_CHANGE:
+		/*	close owner defined network topology finding msg	
 	  	zgprofid = zgStackProfile;
 		if(zgprofid == 0x02)
 			HalLedBlink(HAL_LED_1,3,50,1000);			//to judge if the stack profile is Zigbee Pro stack profile
@@ -376,22 +378,16 @@ uint16 WSN_TestApp1_ProcessEvent( uint8 task_id, uint16 events )
 				}
 
 				
-				/*
-				//start a timer
-				osal_start_reload_timer(WSN_TestApp1_TaskID,
-								WSN_TestApp1_SEND_NWK_CMD_EVT,
-								WSN_TestApp1_SEND_NWK_CMD_TIMEOUT);
-				
-				*/
 				
 				}
 			// Start sending "the" message in a regular interval.
-			/*
+			
             osal_start_timerEx( WSN_TestApp1_TaskID,
                                 WSN_TestApp1_SEND_MSG_EVT,
                                 WSN_TestApp1_SEND_MSG_TIMEOUT );
-                                */
+                                
           }
+		*/
           break;
 
         default:
@@ -510,20 +506,32 @@ static void WSN_TestApp1_ProcessZDOMsgs( zdoIncomingMsg_t *inMsg )
 			ZDO_NwkIEEEAddrResp_t* pRsp = ZDO_ParseAddrRsp( inMsg);
 			if(pRsp)
 			{	
+				
+				
 				HalUARTWrite(0,(uint8*)pRsp,sizeof(*pRsp)+2*pRsp->numAssocDevs);	//note the length
-				if(pRsp->numAssocDevs)
-					HalLedBlink(HAL_LED_2,pRsp->numAssocDevs,50,1000);
+				MicroWait(5000);			//in case uart frame superposition
 				for(uint8 i =0;i<pRsp->numAssocDevs;i++)
 					{
 					//request to the associated devs if not null of the list
+					
 					uint16 DevShortAddr = pRsp->devList[i];
-					if(ZDP_IEEEAddrReq(DevShortAddr,ZDP_ADDR_REQTYPE_EXTENDED,0,0)== afStatus_SUCCESS)
-						HalLedBlink(HAL_LED_2,1,50,1000);
+					if(ZDP_IEEEAddrReq(DevShortAddr,ZDP_ADDR_REQTYPE_EXTENDED,0,0)== afStatus_SUCCESS);
+						//HalLedBlink(HAL_LED_2,1,50,1000);
 					}
 			}
 			
 			osal_mem_free(pRsp);		//must free ZDO_NwkIEEEAddrResp_t* data whichi allocated in ZDO_ParseAddrRsp
 			
+	  }
+	  break;
+
+	  case Device_annce:
+	  	{
+			ZDO_DeviceAnnce_t* pAnnce;
+			ZDO_ParseDeviceAnnce(inMsg,pAnnce);
+			//when new dev joining network,call IEEE_addr_rsp request
+			if(ZDP_IEEEAddrReq(0x0000,ZDP_ADDR_REQTYPE_EXTENDED,0,0)== afStatus_SUCCESS)
+				HalLedBlink(HAL_LED_2,2,50,500);
 	  }
 	  break;
   }
@@ -653,11 +661,11 @@ static void WSN_TestApp1_MessageMSGCB( afIncomingMSGPacket_t *pkt )
 #endif
       break;
 	case WSN_TestApp1_NWKCMD_CLUSTERID:
-	
+		//close this cluster id
 		//HalUARTWrite(0,pkt->cmd.Data,16);
 		//ZDP_IEEEAddrReq(0x0000,ZDP_ADDR_REQTYPE_EXTENDED,0,0);
-		WSN_TestApp1_ProcessNwkCmdMSG(pkt->cmd.Data);		//process the incoming af msg about network node address
-		HalLedBlink(HAL_LED_1,5,50,1000);
+		//WSN_TestApp1_ProcessNwkCmdMSG(pkt->cmd.Data);		//process the incoming af msg about network node address
+		//HalLedBlink(HAL_LED_1,5,50,1000);
 		break;
 	
   }
